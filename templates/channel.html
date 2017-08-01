@@ -1,1 +1,28 @@
-ee
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>channel</title>
+  <meta name="description" content="Slack archive">
+  <meta name="author" content="archivebot">
+
+  <!--[if lt IE 9]>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.js"></script>
+  <![endif]-->
+</head>
+
+<body>
+{% for message in messages %}
+    <div>
+    {{ message.timestamp | timestamp}}
+    {{ message.user | user | safe }}
+    <img src="{{ message.avatar }}" width="30">
+    {{ message.message | message | safe}}
+
+    </div>
+{% endfor %}
+
+</body>
+</html>
