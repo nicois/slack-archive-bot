@@ -2,7 +2,10 @@ import os
 import logging
 import sqlite3
 from os.path import join
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+env = Environment(loader=FileSystemLoader('templates'),
+                  autoescape=select_autoescape(['html', 'xml']))
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("main")
@@ -12,9 +15,12 @@ conn.row_factory = sqlite3.Row
 
 
 known_channels = set(record[0] for record in conn.execute(
-    "SELECT channel, count(*) FROM messages"))
+    "SELECT DISTINCT channel FROM messages"))
 channel_map = dict((record['id'], record['name'])
                    for record in conn.execute('SELECT id, name FROM channels'))
+
+
+template = env.get_template('channel.html')
 
 
 def dump_channel(channel_id, destination_dir):
@@ -24,28 +30,34 @@ def dump_channel(channel_id, destination_dir):
         logger.warning("Using ID {} instead of its name".format(channel_id))
         channel_name = channel_id
     logger.info("dumping {}".format(channel_name))
+    context = dict()
     sql = 'SELECT * from messages WHERE thread_timestamp = timestamp'
-    threads = set(record['timestamp'] for record in conn.execute(sql))
-    with open(join(destination_dir,
-              "{}.html".format(channel_name)), "wt") as out:
-        for message in conn.execute('''
+    context['threads'] = set(record['timestamp']
+                             for record in conn.execute(sql))
+    context['messages'] = list(conn.execute('''
 SELECT messages.*,
        users.name,
        users.avatar
 FROM messages
 LEFT OUTER JOIN users ON (messages.user = users.id)
 ORDER BY messages.timestamp
-'''):
+'''))
+    with open(join(destination_dir,
+              "{}.html".format(channel_name)), "wt") as out:
+        out.write(template.render(**context))
+
+
+'''
             format_message(message=message,
                            is_thread=(message['timestamp'] in threads),
                            out=out)
 
 
 def format_message(message, is_thread, out):
-    out.write('''<div>
+    out.write(''<div>
     {timestamp} - {message}
 </div>
-'''.format(**message))
+'''
 
 
 if __name__ == '__main__':
