@@ -1,5 +1,6 @@
 import os
 import time
+import shlex
 import logging
 import sqlite3
 
@@ -45,6 +46,10 @@ ENV = {
 }
 
 
+def render_timestamp(ts):
+    return '<!date^%s^{date_short} {time_secs}|date>' % get_timestamp(ts)
+
+
 # Uses slack API to get most recent user list
 # Necessary for User ID correlation
 def update_users(conn):
@@ -76,7 +81,7 @@ def get_user_id(name):
 
 
 def get_timestamp(ts):
-    return int(ts.split('.')[0])
+    return round(float(ts))
 
 
 def update_groups(conn):
@@ -147,7 +152,12 @@ def handle_query(event):
         sort = None
         limit = 10
 
-        params = event['text'].lower().split()
+        params = shlex.split(event['text'].lower())
+        logger.info(f'Processing query: {params}')
+        if params == ["stats"]:
+            send_stats(channel=event['channel'])
+            return
+
         for p in params:
             # Handle emoji
             # usual format is " :smiley_face: "
@@ -211,6 +221,19 @@ ORDER BY COALESCE(tm.timestamp, messages.timestamp), messages.timestamp
     except ValueError as e:
         logger.exception('During query')
         send_message(str(e), event['channel'])
+
+
+def send_stats(channel):
+    sql = """
+SELECT COUNT(*) as n,
+       MIN(timestamp) as earliest,
+       MAX(timestamp) as latest
+FROM messages"""
+    (n, earliest, latest), = conn.execute(sql)
+
+    send_message(f'{n} messages from {render_timestamp(earliest)} '
+                 f'to {render_timestamp(latest)}',
+                 channel)
 
 
 def handle_message(conn, event):
