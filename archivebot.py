@@ -132,6 +132,10 @@ def send_message(message, channel):
 
 
 def time_to_show_help(event):
+    """
+    Has it been a while since we showed help,
+    or have they asked for it explicitly?
+    """
     channel = event['channel']
     sql = f"SELECT timestamp FROM last_query WHERE channel=?"
     result = list(conn.execute(sql, (channel,)))
@@ -142,23 +146,28 @@ def time_to_show_help(event):
     sql = "INSERT INTO last_query (channel, timestamp) VALUES (?, ?)"
     conn.execute(sql, (channel, now))
 
+    if event['text'].lower().strip() == "help":
+        result = True
+
     return result
 
 
 def handle_query(event):
     """
-    Handles a DM to the bot that is requesting a search of the archives.
-
     Usage:
 
         <query> from:<user> in:<channel> sort:asc|desc limit:<number>
 
-        query: The text to search for.
+        query: The text to search for. Use quotes around multi-word strings
         user: If you want to limit the search to one user, the username.
         channel: If you want to limit the search to one channel, the channel name.
         sort: Either asc if you want to search starting with the oldest messages,
             or desc if you want to start from the newest. Default asc.
         limit: The number of responses to return. Default 10.
+
+        e.g. "smart planner" limit:3
+        would search all channels for the term "smart planner" (without the quotes)
+        and show the 3 oldest entries.
     """
 
     try:
@@ -229,7 +238,7 @@ ORDER BY COALESCE(tm.timestamp, messages.timestamp), messages.timestamp
         query += ' LIMIT {}'.format(limit)
         logger.debug(query)
 
-        res = conn.execute(query)
+        res = list(conn.execute(query))
 
         if res:
             send_message('\n\n'.join(
