@@ -24,6 +24,8 @@ except sqlite3.OperationalError:
 conn.execute('create table if not exists messages (message text, user text, channel text, timestamp text, thread_timestamp text, UNIQUE(channel, timestamp) ON CONFLICT REPLACE)')
 conn.execute('create table if not exists users (name text, id text, avatar text, UNIQUE(id) ON CONFLICT REPLACE)')
 conn.execute('create table if not exists channels (name text, id text, UNIQUE(id) ON CONFLICT REPLACE)')
+# Keep track of which people have used the service, and when
+conn.execute('create table if not exists last_query (channel text, timestamp INT, UNIQUE(channel) ON CONFLICT REPLACE)')
 
 # This token is given when the bot is started in terminal
 slack_token = os.environ['SLACK_API_TOKEN']
@@ -129,6 +131,20 @@ def send_message(message, channel):
     )
 
 
+def time_to_show_help(event):
+    channel = event['channel']
+    sql = f"SELECT timestamp FROM last_query WHERE channel=?"
+    result = list(conn.execute(sql, (channel,)))
+    logger.warning(repr(result))
+    now = int(time.time())
+    # if it's been over a month since using us, show the help again
+    result = (len(result) == 0 or result[0][0] is None or (now - result[0][0]) > (3600 * 24 * 30))
+    sql = "INSERT INTO last_query (channel, timestamp) VALUES (?, ?)"
+    conn.execute(sql, (channel, now))
+
+    return result
+
+
 def handle_query(event):
     """
     Handles a DM to the bot that is requesting a search of the archives.
@@ -151,6 +167,10 @@ def handle_query(event):
         channel = None
         sort = None
         limit = 10
+
+        if time_to_show_help(event):
+            send_message(handle_query.__doc__, event['channel'])
+            return
 
         params = shlex.split(event['text'].lower())
         logger.info(f'Processing query: {params}')
