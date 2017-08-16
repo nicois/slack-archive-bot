@@ -1,4 +1,7 @@
 <!doctype html>
+{% macro render_timestamp(t) -%}
+{{ time.ctime(round(float(t))) }}
+{%- endmacro %}
 
 <html lang="en">
 <head>
@@ -15,13 +18,22 @@
 
 <body>
 {% for message in messages %}
+    {% set is_thread = bool(message.thread_timestamp) %}
+    {% if is_thread %}
+        {% if (message.thread_timestamp == message.timestamp) %}
+            <hr>
+        {% endif %}
+    {% else %}
+        <hr>
+    {% endif %}
     <div>
-    {{ message.timestamp | timestamp}}
+    {{ render_timestamp(message.timestamp) }}
     {{ message.user | user | safe }}
-    <img src="{{ message.avatar }}" width="30">
+    {# <img src="{{ message.avatar }}" width="30"> #}
     {{ message.message | message | safe}}
 
     </div>
+    {% set was_thread = is_thread %}
 {% endfor %}
 
 </body>

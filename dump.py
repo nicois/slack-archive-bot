@@ -2,6 +2,7 @@ import os
 import re
 import logging
 import sqlite3
+import time
 from datetime import datetime
 from os.path import join
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -60,7 +61,11 @@ def dump_channel(channel_id, destination_dir):
         logger.warning("Using ID {} instead of its name".format(channel_id))
         channel_name = channel_id
     logger.info("dumping {}".format(channel_name))
-    context = dict()
+    context = dict(bool=bool,
+                   time=time,
+                   datetime=datetime,
+                   round=round,
+                   float=float)
     sql = 'SELECT * from messages WHERE thread_timestamp = timestamp'
     context['threads'] = set(record['timestamp']
                              for record in conn.execute(sql))
@@ -70,7 +75,7 @@ SELECT messages.*,
        users.avatar
 FROM messages
 LEFT OUTER JOIN users ON (messages.user = users.id)
-ORDER BY messages.timestamp
+ORDER BY COALESCE(thread_timestamp, messages.timestamp), messages.timestamp
 '''))
     with open(join(destination_dir,
               "{}.html".format(channel_name)), "wt") as out:
