@@ -153,11 +153,22 @@ def time_to_show_help(event):
     return result
 
 
+parser = argparse.ArgumentParser(add_help=False, prog="", epilog='''
+sample query: "server outage" --limit=3 --newest --channel="spot_errors"''')
+parser.add_argument("query", help="Text to search for")
+parser.add_argument("--limit", help="Show this many results",
+                    type=int, default=10)
+parser.add_argument("--newest", help="Show the newest results first, instead of oldest",
+                    action="store_true")
+parser.add_argument("--sender", help="Only show messages from this person")
+parser.add_argument("--channel", help="Only show messages in this channel")
+
+
 def handle_query(event):
     """
     Usage:
 
-        <query> from:<user> in:<channel> sort:asc|desc limit:<number>
+        <query> from:<user> --channel <channel> sort:asc|desc limit:<number>
 
         query: The text to search for. Use quotes around multi-word strings
         user: If you want to limit the search to one user, the username.
@@ -170,21 +181,11 @@ def handle_query(event):
         would search all channels for the term "smart planner" (without the quotes)
         and show the 3 oldest entries.
     """
-
-    parser = argparse.ArgumentParser(description=handle_query.__doc__)
-    parser.add_argument("query", help="Text to search for")
-    parser.add_argument("--limit", help="Show this many results",
-                        type=int, default=10)
-    parser.add_argument("--newest", help="Show the newest results first",
-                        action="store_true")
-    parser.add_argument("--sender", help="Only show messages from this person")
-    parser.add_argument("--channel", help="Only show messages in this channel")
-
     try:
         text = []
 
         if time_to_show_help(event):
-            send_message(handle_query.__doc__, event['channel'])
+            send_message(parser.format_help(), event['channel'])
             return
 
         params = shlex.split(event['text'].lower())
@@ -193,14 +194,18 @@ def handle_query(event):
             send_stats(channel=event['channel'])
             return
 
-        args = parser.parse_args(params)
+        try:
+            args = parser.parse_args(params)
+        except Exception as ex:
+            send_message(ex, event['channel'])
+
         sort = "desc" if args.newest else "asc"
         where = [f'messages.message LIKE "%{args.query}%"']
         if args.sender:
             user = get_user_id(args.sender.replace('@', '').strip())
-            where.append(f'user="{user}"')
+            where.append(f'messages.user="{user}"')
         if args.channel:
-            where.append(f'channel="{args.channel}"')
+            where.append(f'channels.name="{args.channel}"')
 
         query = '''
 SELECT messages.*,
@@ -209,6 +214,7 @@ FROM messages
 LEFT OUTER JOIN (SELECT timestamp, message, user, channel FROM messages) tm
     ON (messages.thread_timestamp = tm.timestamp AND
         messages.channel = tm.channel)
+LEFT OUTER JOIN channels ON (messages.channel = channels.id)
 WHERE {where}
 ORDER BY COALESCE(tm.timestamp, messages.timestamp) {sort}, messages.timestamp {sort}
 LIMIT {limit}
