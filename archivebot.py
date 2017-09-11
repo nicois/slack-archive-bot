@@ -2,6 +2,7 @@ import os
 import time
 import shlex
 import logging
+import argparse
 import sqlite3
 
 from slackclient import SlackClient
@@ -170,12 +171,17 @@ def handle_query(event):
         and show the 3 oldest entries.
     """
 
+    parser = argparse.ArgumentParser(description=handle_query.__doc__)
+    parser.add_argument("query", help="Text to search for")
+    parser.add_argument("--limit", help="Show this many results",
+                        type=int, default=10)
+    parser.add_argument("--newest", help="Show the newest results first",
+                        action="store_true")
+    parser.add_argument("--sender", help="Only show messages from this person")
+    parser.add_argument("--channel", help="Only show messages in this channel")
+
     try:
         text = []
-        user = None
-        channel = None
-        sort = None
-        limit = 10
 
         if time_to_show_help(event):
             send_message(handle_query.__doc__, event['channel'])
@@ -187,36 +193,14 @@ def handle_query(event):
             send_stats(channel=event['channel'])
             return
 
-        for p in params:
-            # Handle emoji
-            # usual format is " :smiley_face: "
-            if len(p) > 2 and p[0] == ':' and p[-1] == ':':
-                text.append(p)
-                continue
-
-            p = p.split(':')
-
-            if len(p) == 1:
-                text.append(p[0])
-            if len(p) == 2:
-                if p[0] == 'from':
-                    user = get_user_id(p[1].replace('@', '').strip())
-                    if user is None:
-                        raise ValueError('User %s not found' % p[1])
-                if p[0] == 'in':
-                    channel = get_channel_id(p[1].replace('#', '').strip())
-                    if channel is None:
-                        raise ValueError('Channel %s not found' % p[1])
-                if p[0] == 'sort':
-                    if p[1] in ['asc', 'desc']:
-                        sort = p[1]
-                    else:
-                        raise ValueError('Invalid sort order %s' % p[1])
-                if p[0] == 'limit':
-                    try:
-                        limit = int(p[1])
-                    except:
-                        raise ValueError('%s not a valid number' % p[1])
+        args = parser.parse_args(params)
+        sort = "desc" if args.newest else "asc"
+        where = [f'messages.message LIKE "%{args.query}%"']
+        if args.sender:
+            user = get_user_id(args.sender.replace('@', '').strip())
+            where.append(f'user="{user}"')
+        if args.channel:
+            where.append(f'channel="{args.channel}"')
 
         query = '''
 SELECT messages.*,
@@ -225,18 +209,11 @@ FROM messages
 LEFT OUTER JOIN (SELECT timestamp, message, user, channel FROM messages) tm
     ON (messages.thread_timestamp = tm.timestamp AND
         messages.channel = tm.channel)
-WHERE messages.message LIKE "%%%s%%"
-ORDER BY COALESCE(tm.timestamp, messages.timestamp), messages.timestamp
-''' % ' '.join(text)
-        if user:
-            query += ' AND user="%s"' % user
-        if channel:
-            query += ' AND channel="%s"' % channel
-        if sort:
-            query += ' ORDER BY timestamp %s' % sort
-
-        query += ' LIMIT {}'.format(limit)
-        logger.debug(query)
+WHERE {where}
+ORDER BY COALESCE(tm.timestamp, messages.timestamp) {sort}, messages.timestamp {sort}
+LIMIT {limit}
+'''.format(where=" AND ".join(where), sort=sort, limit=args.limit)
+        logger.info(query)
 
         res = list(conn.execute(query))
 
